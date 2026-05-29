@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ak-lxd-helper</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>ak-lxd-helper</h1>
+    <div id="server-summary" class="muted">connecting…</div>
+    <nav>
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="instances">Instances</button>
+      <button data-tab="images">Images</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Dashboard ----------------------------------------------------- -->
+    <section id="tab-dashboard" class="tab active">
+      <h2>Host</h2>
+      <div id="dashboard-cards" class="cards"></div>
+      <h2>Instances at a glance</h2>
+      <div id="dashboard-instances"></div>
+    </section>
+
+    <!-- Instances ----------------------------------------------------- -->
+    <section id="tab-instances" class="tab">
+      <div class="toolbar">
+        <button id="btn-refresh-instances">Refresh</button>
+        <button id="btn-new-instance" class="primary">+ New instance</button>
+      </div>
+      <table id="instances-table">
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>Status</th><th>IPv4</th><th>CPU / Mem</th><th>Actions</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Images -------------------------------------------------------- -->
+    <section id="tab-images" class="tab">
+      <div class="toolbar">
+        <button id="btn-refresh-images">Refresh</button>
+        <button id="btn-import-image" class="primary">+ Import image</button>
+      </div>
+      <table id="images-table">
+        <thead>
+          <tr><th>Aliases</th><th>Description</th><th>Type</th><th>Arch</th><th>Size</th><th>Fingerprint</th><th>Actions</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Modal / drawer container -->
+  <div id="overlay" class="hidden">
+    <div id="panel"></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

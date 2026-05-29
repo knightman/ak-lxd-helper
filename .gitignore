@@ -1,0 +1,18 @@
+# Local environment / secrets (host names, paths, ports)
+.env
+
+# Claude Code machine-local settings (may contain local paths / host rules)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Forwarded LXD dev socket, if created inside the repo
+*.socket
+
+# macOS
+.DS_Store

@@ -1,0 +1,20 @@
+#cloud-config
+# Base developer prereqs for lab VMs. Applied via the `base-ubuntu` LXD profile
+# (lab.sh profile-apply). Arch-aware Miniforge install -> /opt/conda.
+package_update: true
+package_upgrade: false
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - build-essential
+  - git
+  - curl
+  - ca-certificates
+write_files:
+  - path: /etc/profile.d/conda.sh
+    content: |
+      export PATH=/opt/conda/bin:$PATH
+runcmd:
+  - [ bash, -lc, "test -x /opt/conda/bin/conda || { A=$(uname -m); curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${A}.sh -o /tmp/mf.sh && bash /tmp/mf.sh -b -p /opt/conda && rm -f /tmp/mf.sh; }" ]
+  - [ bash, -lc, "ln -sf /opt/conda/bin/conda /usr/local/bin/conda" ]

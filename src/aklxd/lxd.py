@@ -265,6 +265,16 @@ class LXDClient:
         resp = await self._request("POST", "/1.0/images", data=body)
         return await self.wait_operation(resp, timeout=900)
 
+    # -- logs --------------------------------------------------------------
+
+    async def list_logs(self, name: str) -> list:
+        """List host-side log file paths for an instance (e.g. qemu.log)."""
+        return await self._meta(f"/1.0/instances/{name}/logs")
+
+    async def get_log_file(self, name: str, filename: str) -> str:
+        data = await self.get(f"/1.0/instances/{name}/logs/{filename}", raw=True)
+        return data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
+
     # -- storage / devices -------------------------------------------------
 
     async def list_storage_pools(self) -> list:

@@ -17,7 +17,9 @@ JSON API) so you don't have to keep the LXD docs open.
 
 | Area | Features |
 |------|----------|
-| **Host** | Server info, LXD version, kernel, CPU/memory usage, GPU count |
+| **Host monitor** | Live host CPU%, memory, **GPU** (nvidia-smi), disk, network on the Dashboard, plus per-instance CPU/mem/net (auto-refresh) |
+| **Logs** | Per-instance host-side LXD logs (`qemu.log`) + quick in-guest `journalctl`/`cloud-init`/`syslog` |
+| **LAN access** | Give VMs a real LAN IP (macvlan) + password SSH; dashboard shows IP + credentials + `ssh` command |
 | **Instances** | List with status/IP/memory; create container, VM, or **empty VM**; start / stop / restart / freeze; edit config (`limits.cpu`, `limits.memory`, profiles, description); rename; delete |
 | **Run commands** | One-off non-interactive `exec` with captured stdout/stderr/exit code |
 | **Terminal** | Full interactive shell inside an instance (xterm.js over a WebSocket proxy) |
@@ -125,8 +127,12 @@ source `.env` automatically.
 | Dashboard bind host | `AK_LXD_HOST` | `--host` | `127.0.0.1` |
 | Dashboard bind port | `AK_LXD_PORT` | `--port` | `8080` |
 | Conda env name | `AK_LXD_CONDA_ENV` | — | `ak-lxd-helper` |
-| LXD host (dev forward only) | `LXD_HOST` | — | — |
+| LXD host (dev forward + host stats SSH) | `LXD_HOST` | — | — |
 | Remote socket (dev forward only) | `LXD_REMOTE_SOCKET` | — | `/var/snap/lxd/common/lxd/unix.socket` |
+| Host-stats source | `HOST_STATS` | — | `auto` (local on-host, else SSH `LXD_HOST`); `local\|ssh\|off` |
+| VM SSH user | `LAB_VM_USER` | — | `lab` |
+| VM SSH password | `LAB_VM_PASSWORD` | — | _(set in `.env`)_ |
+| macvlan parent NIC | `LAB_LAN_PARENT` | — | `enP7s7` |
 
 ¹ Auto-detection order: `$LXD_SOCKET` → `/var/snap/lxd/common/lxd/unix.socket`
 → `~/.lxd.socket` → `/tmp/lxd.socket`.
@@ -135,7 +141,10 @@ source `.env` automatically.
 
 ## Using the dashboard
 
-- **Dashboard tab** — host overview and an instance status summary.
+- **Dashboard tab** — live resource monitor: host CPU%, memory, GPU(s), disk, and
+  network (auto-refresh every 3s), plus a per-instance CPU/memory/network table.
+  Host stats come from the host (`/proc` + `nvidia-smi`), run locally on-host or over
+  SSH to `$LXD_HOST` (see `HOST_STATS`); shows "unavailable" if neither is reachable.
 - **Instances tab**
   - **+ New instance** — name it, pick container vs VM, choose a local image or
     pull a remote one (e.g. server `https://cloud-images.ubuntu.com/releases`,
@@ -147,8 +156,11 @@ source `.env` automatically.
       (type, IPv4/IPv6, NAT) for each network the instance is attached to.
     - *Config* — edit config/description/profiles as JSON (saved with PATCH, which merges).
     - *Run* — execute a single command, see stdout/stderr/exit code.
+    - *Logs* — host-side LXD log files + quick in-guest `journalctl`/`cloud-init`/`syslog`.
     - *Terminal* — interactive shell (instance must be running; needs the lxd-agent, i.e. an installed OS).
     - *Console* — serial console (see notes below).
+  - The *Overview* tab shows an **LAN access** card with the VM's LAN IP, SSH
+    username/password, and a copyable `ssh` command (see "LAN access" below).
   - Row buttons: Start / Stop / Restart / Delete.
 - **Images tab** — import, alias, edit, delete images.
 
@@ -208,6 +220,10 @@ All responses are `{"ok": true, "data": …}` or `{"ok": false, "error": …}`.
 |---------------|---------|
 | `GET /api/server` | LXD server/environment info |
 | `GET /api/resources` | Host hardware (cpu/memory/gpu) |
+| `GET /api/host/stats` | Live host CPU%/mem/disk/net + GPU (nvidia-smi) |
+| `GET /api/instances/{name}/access` | SSH access info: LAN IP, username, password, `ssh` cmd |
+| `GET /api/instances/{name}/logs` | List host-side log files |
+| `GET /api/instances/{name}/logs/{file}` | Log file contents |
 | `GET /api/instances` | List instances (recursion=2) |
 | `POST /api/instances` | Create (see payload below) |
 | `GET /api/instances/{name}` | Details + runtime state |
@@ -376,6 +392,32 @@ sudo netfilter-persistent save
 > `ping example.com` (DNS).
 
 ---
+
+## LAN access (SSH into VMs)
+
+By default LXD VMs sit on the private `lxdbr0` bridge — reachable from the host and
+from each other, but **not** from your LAN. To SSH into a VM directly from your
+network, the `base-ubuntu` lab profile gives each VM a **second NIC via macvlan** on
+the host's LAN interface (`LAB_LAN_PARENT`, default `enP7s7`), so the VM gets its own
+LAN IP (e.g. `192.168.1.x`) while keeping `eth0` on `lxdbr0` for inter-VM traffic. The
+profile's cloud-init also creates `LAB_VM_USER` with `LAB_VM_PASSWORD` and enables
+password SSH.
+
+- **New VMs** (created from the profile) get this automatically.
+- **Existing VMs:** `lab/scripts/lab.sh expose-lan <name>` hot-adds the macvlan NIC and
+  sets up the user/password.
+- The instance **Overview → LAN access** card shows the LAN IP + credentials + `ssh`
+  command. Then from your laptop: `ssh lab@<vm-lan-ip>`.
+
+Notes:
+- **macvlan caveat:** the *host* cannot reach its own macvlan guests by IP (a kernel
+  limitation), but the rest of the LAN can, and the dashboard console/exec are
+  unaffected (they use the lxd-agent over vsock, not the network).
+- Credentials live in gitignored `.env`; the Access endpoint returns the password in
+  plaintext for display — keep the dashboard bound to `127.0.0.1`.
+- Alternatives if you prefer: a `proxy` device (NAT port-forward, host-IP:port) or a
+  host bridge over the physical NIC (real LAN IP + host↔VM, but reconfigures host
+  networking).
 
 ## Lab: spec-driven multi-system experiments
 

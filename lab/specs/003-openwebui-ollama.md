@@ -1,6 +1,6 @@
 # 003 — Open WebUI ↔ Ollama (two VMs working together)
 
-- **Status:** ⚪ planned (spec stub — execute in a later pass)
+- **Status:** 🟢 done (2026-05-28)
 - **Skills:** `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect`
 - **Instances:** `lab-003-openwebui` + `lab-002-ollama` (from project 002)
 
@@ -31,9 +31,10 @@ the pulled model. Proves the `lxd-multi-connect` building block (multi-VM wiring
 
 ## Acceptance criteria
 
-- [ ] Open WebUI service is up and reachable.
-- [ ] From `lab-003-openwebui`: `curl http://<ollama-ip>:11434/api/tags` lists the model.
-- [ ] Open WebUI lists the Ollama model and returns a chat completion end-to-end.
+- [x] Open WebUI service is up and reachable (`/health` = `{"status":true}`, listens `0.0.0.0:8080`).
+- [x] From `lab-003-openwebui`: `curl http://<ollama-ip>:11434/api/*` reaches Ollama (cross-VM over lxdbr0).
+- [x] Open WebUI lists the Ollama model (`/api/models` → `llama3.2:1b`) and returns a completion
+  end-to-end (proxied via `/ollama/api/generate` → Ollama VM).
 
 ## Verification
 
@@ -51,4 +52,27 @@ lab/scripts/lab.sh teardown lab-003-openwebui
 
 ## Results
 
-_(pending)_
+**2026-05-28 — PASS.** `lab-003-openwebui` created from `base-ubuntu`, then:
+
+- Made a `conda` env `owui` (Python 3.11), installed **CPU-only PyTorch first**
+  (`--index-url https://download.pytorch.org/whl/cpu`) then `pip install open-webui`
+  → **open-webui 0.9.5**, `torch 2.12.0+cpu`. *(Critical: installing open-webui
+  directly pulled multi-GB `nvidia_*` CUDA wheels on this arm64/GB10 host — pre-installing
+  CPU torch avoids that.)*
+- systemd unit runs `open-webui serve --host 0.0.0.0 --port 8080` with
+  `OLLAMA_BASE_URL=http://10.10.249.8:11434`. Service **active**, `LISTEN 0.0.0.0:8080`.
+- **Multi-connect (`lxd-multi-connect`):** discovered Ollama IP `10.10.249.8` at runtime;
+  `lab-003` reaches `http://10.10.249.8:11434/api/version` and `/api/generate` over lxdbr0.
+- **End-to-end through Open WebUI:** created an admin via `/api/v1/auths/signup`
+  (token); `GET /api/models` lists `llama3.2:1b` (Open WebUI's backend connected to the
+  Ollama VM); `POST /ollama/api/generate` returned a real completion proxied to the
+  Ollama VM.
+
+Notes:
+- Open WebUI's native `/api/chat/completions` 400s on a brand-new instance
+  (`'NoneType' ... startswith` in `process_chat` — needs UI-side config/default model).
+  The `/ollama/api/*` proxy and the browser UI work; that endpoint is a fresh-instance quirk.
+- `WEBUI_AUTH=False` did **not** open the REST API unauthenticated (proxy still returned
+  "Not authenticated"); the signup-token flow is the reliable automated path.
+- Test admin: `lab@lab.local` / `labpass123` (throwaway). Open the UI at the VM's
+  `:8080` to chat interactively.

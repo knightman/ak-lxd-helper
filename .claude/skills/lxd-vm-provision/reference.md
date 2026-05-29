@@ -10,24 +10,35 @@
 - **Reachability.** For services other VMs will consume, bind to `0.0.0.0` and confirm
   the listening socket (`ss -ltnp`).
 
-## Example: Ollama (lab project 002)
+## Example: Ollama (lab project 002 — verified 2026-05-28)
+
+The arm64 install bundle is **large** (it ships GPU/CUDA runtime even unused) and the
+model pull is ~1.3 GB — **both exceed the 300s exec timeout**, so run them **detached
+and poll** (do NOT call `install.sh`/`ollama pull` as a single blocking `exec`).
 
 ```bash
-# install
-lab/scripts/lab.sh exec lab-002-ollama "curl -fsSL https://ollama.com/install.sh | sh"
-# bind to all interfaces (so project 003's Open WebUI VM can reach it)
-lab/scripts/lab.sh exec lab-002-ollama \
+VM=lab-002-ollama
+# 1) install — detached, then poll for the ollama user (created at the very end)
+lab/scripts/lab.sh exec $VM \
+  "setsid bash -c 'curl -fsSL https://ollama.com/install.sh | sh > /var/log/ollama-install.log 2>&1' </dev/null >/dev/null 2>&1 & echo launched"
+#    poll: until `id ollama` succeeds (or `systemctl cat ollama` exists)
+# 2) bind to all interfaces so other VMs can reach it
+lab/scripts/lab.sh exec $VM \
   "mkdir -p /etc/systemd/system/ollama.service.d && \
-   printf '[Service]\nEnvironment=OLLAMA_HOST=0.0.0.0:11434\n' \
-     > /etc/systemd/system/ollama.service.d/host.conf && \
+   printf '[Service]\nEnvironment=\"OLLAMA_HOST=0.0.0.0:11434\"\n' \
+     > /etc/systemd/system/ollama.service.d/override.conf && \
    systemctl daemon-reload && systemctl restart ollama"
-# pull a small model + smoke test
-lab/scripts/lab.sh exec lab-002-ollama "ollama pull llama3.2:1b"
-lab/scripts/lab.sh exec lab-002-ollama "curl -s localhost:11434/api/tags"
+# 3) pull a small model — detached, then poll `ollama list` for the model
+lab/scripts/lab.sh exec $VM \
+  "setsid bash -c 'ollama pull llama3.2:1b > /var/log/ollama-pull.log 2>&1' </dev/null >/dev/null 2>&1 & echo launched"
+# 4) smoke test
+lab/scripts/lab.sh exec $VM "curl -s localhost:11434/api/tags"
+lab/scripts/lab.sh exec $VM "curl -s localhost:11434/api/generate -d '{\"model\":\"llama3.2:1b\",\"prompt\":\"hi\",\"stream\":false}'"
 ```
 
-Acceptance: `ollama --version` works, service active, `/api/tags` lists the model, a
-`/api/generate` call returns text, and the port listens on `0.0.0.0`.
+Acceptance: `ollama --version` works, service active, `ss` shows `LISTEN *:11434`,
+`/api/tags` lists the model, and `/api/generate` returns text. (CPU-only unless GPU
+passthrough is configured — `install.sh` warns "No NVIDIA/AMD GPU detected".)
 
 ## Caveats
 

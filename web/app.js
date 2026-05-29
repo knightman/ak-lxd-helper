@@ -94,6 +94,7 @@ $$("nav button").forEach((btn) => {
     $$("nav button").forEach((b) => b.classList.toggle("active", b === btn));
     const tab = btn.dataset.tab;
     $$(".tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + tab));
+    if (tab !== "dashboard") stopMonitor();
     if (tab === "dashboard") loadDashboard();
     if (tab === "instances") loadInstances();
     if (tab === "images") loadImages();
@@ -101,49 +102,123 @@ $$("nav button").forEach((btn) => {
 });
 
 // ---------------------------------------------------------------------------
-// Dashboard
+// Dashboard — live host + instance resource monitor
 // ---------------------------------------------------------------------------
 
+function rate(deltaBytes, dtSec) {
+  if (!dtSec || deltaBytes < 0) return "—";
+  return fmtBytes(deltaBytes / dtSec) + "/s";
+}
+
+function meterCard(label, value, pct, sub) {
+  const clamped = Math.max(0, Math.min(100, pct || 0));
+  return el("div", { class: "card" },
+    el("div", { class: "label" }, label),
+    el("div", { class: "value" }, value),
+    el("div", { class: "meter" }, el("div", { class: "meter-fill", style: `width:${clamped}%` })),
+    sub ? el("div", { class: "muted", style: "font-size:12px;margin-top:4px" }, sub) : null);
+}
+
+const _mon = { hostNet: null, hostTs: 0, inst: {} };
+
+async function tickMonitor() {
+  // Host stats
+  try {
+    const h = await api("/host/stats");
+    const cards = $("#host-cards");
+    cards.replaceChildren();
+    if (!h.available) {
+      cards.append(el("div", { class: "card" }, el("div", { class: "label" }, "Host stats"),
+        el("div", { class: "muted" }, h.reason || "unavailable")));
+    } else {
+      cards.append(meterCard("CPU", (h.cpu_pct ?? "—") + "%", h.cpu_pct,
+        `${h.ncpu} cores · load ${(h.load || []).map((x) => x.toFixed(2)).join(" ")}`));
+      const memPct = h.mem_total ? 100 * h.mem_used / h.mem_total : 0;
+      cards.append(meterCard("Memory", `${fmtBytes(h.mem_used)} / ${fmtBytes(h.mem_total)}`, memPct));
+      for (const g of (h.gpus || [])) {
+        const memSub = g.mem_total ? `${g.mem_used ?? "?"} / ${g.mem_total} MiB` : "unified mem";
+        cards.append(meterCard(`GPU · ${g.name}`, (g.util ?? "—") + "%", g.util,
+          `${memSub}${g.temp != null ? " · " + g.temp + "°C" : ""}`));
+      }
+      if (h.disk) {
+        const dPct = 100 * h.disk.used / h.disk.total;
+        cards.append(meterCard("Disk /", `${fmtBytes(h.disk.used)} / ${fmtBytes(h.disk.total)}`, dPct));
+      }
+      // net rate across physical NICs (en*/eth*/wl*)
+      const phys = Object.entries(h.net || {}).filter(([n]) => /^(en|eth|wl)/.test(n));
+      const rx = phys.reduce((a, [, v]) => a + v.rx, 0);
+      const tx = phys.reduce((a, [, v]) => a + v.tx, 0);
+      let netVal = "—";
+      if (_mon.hostNet) {
+        const dt = h.ts - _mon.hostTs;
+        netVal = `↓ ${rate(rx - _mon.hostNet.rx, dt)}  ↑ ${rate(tx - _mon.hostNet.tx, dt)}`;
+      }
+      _mon.hostNet = { rx, tx }; _mon.hostTs = h.ts;
+      cards.append(el("div", { class: "card" }, el("div", { class: "label" }, "Network"),
+        el("div", { class: "value", style: "font-size:15px" }, netVal),
+        el("div", { class: "muted", style: "font-size:12px;margin-top:4px" }, phys.map(([n]) => n).join(", "))));
+    }
+    $("#monitor-status").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("#monitor-status").textContent = "host stats error: " + e.message;
+  }
+
+  // Per-instance usage
+  try {
+    const instances = await api("/instances");
+    const now = Date.now() / 1000;
+    const tbody = $("#monitor-table tbody");
+    tbody.replaceChildren(...instances.map((inst) => {
+      const st = inst.state || {};
+      const prev = _mon.inst[inst.name];
+      // cpu.usage is cumulative ns -> % of a core
+      let cpu = "—";
+      const usageNs = st.cpu?.usage;
+      if (prev && usageNs != null && prev.cpu != null) {
+        const dt = now - prev.ts;
+        if (dt > 0) cpu = (100 * (usageNs - prev.cpu) / (dt * 1e9)).toFixed(0) + "%";
+      }
+      const net = st.network || {};
+      const rx = Object.values(net).reduce((a, n) => a + (n.counters?.bytes_received || 0), 0);
+      const tx = Object.values(net).reduce((a, n) => a + (n.counters?.bytes_sent || 0), 0);
+      let netStr = "—";
+      if (prev) { const dt = now - prev.ts; netStr = `↓ ${rate(rx - prev.rx, dt)}  ↑ ${rate(tx - prev.tx, dt)}`; }
+      _mon.inst[inst.name] = { cpu: usageNs, rx, tx, ts: now };
+      return el("tr", {},
+        el("td", {}, el("strong", {}, inst.name)),
+        el("td", {}, inst.type === "virtual-machine" ? "VM" : "container"),
+        el("td", {}, statusBadge(inst.status)),
+        el("td", { class: "mono" }, cpu),
+        el("td", { class: "mono" }, st.memory ? fmtBytes(st.memory.usage) : "—"),
+        el("td", { class: "mono" }, netStr));
+    }));
+  } catch { /* host error already shown */ }
+}
+
+let _monTimer = null;
 async function loadDashboard() {
   try {
     const info = await api("/server");
     const env = info.environment || {};
     $("#server-summary").textContent =
       `${env.server_name || "lxd"} · LXD ${env.server_version || "?"} · ${env.kernel_architecture || ""}`;
-
-    const cards = $("#dashboard-cards");
-    cards.replaceChildren();
-    const add = (label, value) => cards.append(
-      el("div", { class: "card" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value)));
-
-    add("Server", env.server_name || "—");
-    add("LXD version", env.server_version || "—");
-    add("Kernel", env.kernel_version || "—");
-    add("Architecture", env.kernel_architecture || "—");
-
-    try {
-      const r = await api("/resources");
-      if (r.cpu) add("CPU cores", String(r.cpu.total ?? (r.cpu.sockets || []).reduce((a, s) => a + (s.cores?.length || 0), 0)));
-      if (r.memory) {
-        add("Memory used", `${fmtBytes(r.memory.used)} / ${fmtBytes(r.memory.total)}`);
-      }
-      if (r.gpu && r.gpu.cards) add("GPUs", String(r.gpu.cards.length));
-    } catch { /* resources optional */ }
-  } catch (e) {
-    $("#server-summary").textContent = "LXD unreachable";
-    toast(e.message, "error");
-  }
-
-  try {
-    const instances = await api("/instances");
-    const box = $("#dashboard-instances");
-    box.replaceChildren();
-    if (!instances.length) { box.append(el("p", { class: "muted" }, "No instances yet.")); return; }
-    const counts = instances.reduce((a, i) => (a[i.status] = (a[i.status] || 0) + 1, a), {});
-    box.append(el("p", { class: "muted" },
-      Object.entries(counts).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(" · ")));
-  } catch { /* handled above */ }
+  } catch (e) { $("#server-summary").textContent = "LXD unreachable"; }
+  startMonitor();
 }
+
+function startMonitor() {
+  stopMonitor();
+  tickMonitor();
+  if ($("#monitor-auto").checked) _monTimer = setInterval(tickMonitor, 3000);
+}
+function stopMonitor() { if (_monTimer) { clearInterval(_monTimer); _monTimer = null; } }
+
+$("#monitor-refresh").addEventListener("click", tickMonitor);
+$("#monitor-auto").addEventListener("change", startMonitor);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopMonitor();
+  else if ($("#tab-dashboard").classList.contains("active")) startMonitor();
+});
 
 // ---------------------------------------------------------------------------
 // Instances
@@ -243,6 +318,7 @@ async function openInstance(name) {
     Devices: () => devicesTab(inst),
     Config: () => configTab(inst),
     Run: () => runTab(name),
+    Logs: () => logsTab(name),
     Terminal: () => terminalTab(name, "exec"),
     Console: () => terminalTab(name, "console"),
   };
@@ -286,7 +362,62 @@ function overviewTab(inst) {
       });
     });
   }
-  return el("div", {}, kv, netList);
+
+  // SSH access card (LAN IP + credentials), populated async
+  const access = el("div", {});
+  api(`/instances/${inst.name}/access`).then((a) => {
+    access.append(el("h2", {}, "LAN access (SSH)"));
+    if (!a.lan_ip) {
+      access.append(el("p", { class: "muted" },
+        "No LAN IP yet. New VMs from the base-ubuntu profile get one automatically; for an existing VM run "),
+        el("code", {}, `lab.sh expose-lan ${inst.name}`));
+      return;
+    }
+    const kv2 = el("div", { class: "kv" });
+    const add = (k, v) => kv2.append(el("div", { class: "k" }, k), el("div", { class: "mono" }, v));
+    add("LAN IP", a.lan_ip);
+    add("Bridge IP", a.bridge_ip || "—");
+    add("Username", a.username);
+    add("Password", a.password || "(set LAB_VM_PASSWORD)");
+    const sshCmd = a.ssh || `ssh ${a.username}@${a.lan_ip}`;
+    const copyBtn = el("button", { class: "sm", onclick: () => {
+      navigator.clipboard?.writeText(sshCmd); toast("SSH command copied", "success");
+    } }, "Copy");
+    kv2.append(el("div", { class: "k" }, "SSH"), el("div", {}, el("code", {}, sshCmd), " ", copyBtn));
+    access.append(kv2);
+  }).catch(() => {});
+
+  return el("div", {}, kv, netList, access);
+}
+
+function logsTab(name) {
+  const wrap = el("div", {});
+  wrap.append(el("p", { class: "muted" }, "Host-side LXD logs and quick in-guest logs (in-guest needs the agent)."));
+  const out = el("pre", { class: "output" }, "Select a log above.");
+  const showFile = async (f) => {
+    out.textContent = "loading…";
+    try { const d = await api(`/instances/${name}/logs/${encodeURIComponent(f)}`); out.textContent = d.content || "(empty)"; }
+    catch (e) { out.textContent = "Error: " + e.message; }
+  };
+  const showGuest = async (cmd) => {
+    out.textContent = "running…";
+    try {
+      const r = await api(`/instances/${name}/exec`, { method: "POST", body: JSON.stringify({ command: cmd }) });
+      out.textContent = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "") || "(no output)";
+    } catch (e) { out.textContent = "Error: " + e.message; }
+  };
+  const lxdBar = el("div", { class: "toolbar" }, el("span", { class: "muted", style: "align-self:center" }, "LXD:"));
+  api(`/instances/${name}/logs`).then((files) => {
+    if (!files.length) lxdBar.append(el("span", { class: "muted" }, "no files"));
+    files.forEach((f) => lxdBar.append(el("button", { class: "sm", onclick: () => showFile(f) }, f)));
+  }).catch((e) => lxdBar.append(el("span", { class: "muted" }, e.message)));
+  const guestBar = el("div", { class: "toolbar" },
+    el("span", { class: "muted", style: "align-self:center" }, "guest:"),
+    el("button", { class: "sm", onclick: () => showGuest("journalctl -n 300 --no-pager") }, "journalctl"),
+    el("button", { class: "sm", onclick: () => showGuest("tail -n 200 /var/log/cloud-init-output.log") }, "cloud-init"),
+    el("button", { class: "sm", onclick: () => showGuest("tail -n 200 /var/log/syslog") }, "syslog"));
+  wrap.append(lxdBar, guestBar, out);
+  return wrap;
 }
 
 function dataTable(headers) {

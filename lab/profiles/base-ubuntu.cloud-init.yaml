@@ -1,6 +1,9 @@
 #cloud-config
 # Base developer prereqs for lab VMs. Applied via the `base-ubuntu` LXD profile
 # (lab.sh profile-apply). Arch-aware Miniforge install -> /opt/conda.
+# __LAB_VM_USER__ / __LAB_VM_PASSWORD__ are substituted from .env at profile-apply
+# time (no secret committed). Enables LAN password SSH; the eth1 macvlan NIC that
+# gives the VM a LAN IP is added to the profile by lab.sh, not here.
 package_update: true
 package_upgrade: false
 packages:
@@ -11,10 +14,24 @@ packages:
   - git
   - curl
   - ca-certificates
+ssh_pwauth: true
+users:
+  - default
+  - name: __LAB_VM_USER__
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: "__LAB_VM_PASSWORD__"
 write_files:
   - path: /etc/profile.d/conda.sh
     content: |
       export PATH=/opt/conda/bin:$PATH
+  # Sorts before 60-cloudimg-settings.conf so password auth wins (sshd uses
+  # the first value found across the included drop-ins).
+  - path: /etc/ssh/sshd_config.d/00-lab-ssh.conf
+    content: |
+      PasswordAuthentication yes
 runcmd:
   - [ bash, -lc, "test -x /opt/conda/bin/conda || { A=$(uname -m); curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${A}.sh -o /tmp/mf.sh && bash /tmp/mf.sh -b -p /opt/conda && rm -f /tmp/mf.sh; }" ]
   - [ bash, -lc, "ln -sf /opt/conda/bin/conda /usr/local/bin/conda" ]

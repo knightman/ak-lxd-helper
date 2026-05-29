@@ -2,6 +2,7 @@
 # lab.sh — thin CLI over the ak-lxd-helper dashboard API for spec-driven LXD experiments.
 #
 #   lab.sh profile-apply [name]      upload lab/profiles/<...> as an LXD profile (default base-ubuntu)
+#   lab.sh expose-lan <name>         give an EXISTING VM a LAN IP (macvlan) + password SSH
 #   lab.sh create <name> [profile]   launch a VM from a cloud image + profile (default base-ubuntu)
 #   lab.sh wait <name> [tries]       poll until cloud-init reports done (default 90 x 5s)
 #   lab.sh exec <name> <cmd...>      run a command in the VM, stream stdout/stderr, exit with its code
@@ -21,6 +22,8 @@ URL="${AK_LXD_URL:-http://127.0.0.1:8080}"
 CPU="${LAB_CPU:-2}"; MEM="${LAB_MEM:-4GiB}"; DISK="${LAB_DISK:-20GiB}"
 RELEASE="${LAB_RELEASE:-24.04}"
 IMAGE_SERVER="${LAB_IMAGE_SERVER:-https://cloud-images.ubuntu.com/releases}"
+VM_USER="${LAB_VM_USER:-lab}"; VM_PASSWORD="${LAB_VM_PASSWORD:-}"
+LAN_PARENT="${LAB_LAN_PARENT:-enP7s7}"
 
 die() { echo "error: $*" >&2; exit 1; }
 api() { # api METHOD PATH [json]
@@ -38,21 +41,50 @@ cmd_profile_apply() {
   local name="${1:-base-ubuntu}"
   local ci="$LAB/profiles/${name}.cloud-init.yaml"
   [ -f "$ci" ] || die "missing cloud-init file: $ci"
+  [ -n "$VM_PASSWORD" ] || die "LAB_VM_PASSWORD is empty — set it in .env (used for VM SSH login)"
   local payload
-  payload=$(python3 - "$ci" "$CPU" "$MEM" "$DISK" <<'PY'
+  payload=$(python3 - "$ci" "$CPU" "$MEM" "$DISK" "$VM_USER" "$VM_PASSWORD" "$LAN_PARENT" <<'PY'
 import json,sys
-ci=open(sys.argv[1]).read(); cpu,mem,disk=sys.argv[2:5]
+ci=open(sys.argv[1]).read(); cpu,mem,disk,user,pw,parent=sys.argv[2:8]
+ci=ci.replace("__LAB_VM_USER__",user).replace("__LAB_VM_PASSWORD__",pw)
 print(json.dumps({
-  "description":"ak-lxd-helper lab base (cloud-init: python3 + miniforge)",
+  "description":"ak-lxd-helper lab base (python3 + miniforge, LAN macvlan, pw SSH)",
   "config":{"limits.cpu":cpu,"limits.memory":mem,"cloud-init.user-data":ci},
   "devices":{
     "root":{"path":"/","pool":"default","type":"disk","size":disk},
     "eth0":{"name":"eth0","network":"lxdbr0","type":"nic"},
+    "eth1":{"name":"eth1","nictype":"macvlan","parent":parent,"type":"nic"},
   },
 }))
 PY
 )
-  api PUT "/api/profiles/$name" "$payload" >/dev/null && echo "profile '$name' applied (cpu=$CPU mem=$MEM disk=$DISK)"
+  api PUT "/api/profiles/$name" "$payload" >/dev/null \
+    && echo "profile '$name' applied (cpu=$CPU mem=$MEM disk=$DISK; LAN macvlan parent=$LAN_PARENT; user=$VM_USER)"
+}
+
+# Bring LAN SSH to an EXISTING VM (created before macvlan/creds were in the profile):
+# hot-add the eth1 macvlan NIC, ensure the user+password exist, enable password SSH,
+# and DHCP the new interface. New VMs get all this from the profile automatically.
+cmd_expose_lan() {
+  local name="${1:?usage: expose-lan <name>}"
+  [ -n "$VM_PASSWORD" ] || die "LAB_VM_PASSWORD is empty — set it in .env"
+  echo "adding eth1 macvlan (parent $LAN_PARENT) to $name ..."
+  api POST "/api/instances/$name/devices" \
+    "$(python3 -c 'import json,sys;print(json.dumps({"name":"eth1","device":{"type":"nic","nictype":"macvlan","parent":sys.argv[1],"name":"eth1"}}))' "$LAN_PARENT")" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('  device:', 'ok' if d.get('ok') else d.get('error'))"
+  echo "configuring user + password SSH + DHCP on the new NIC ..."
+  # runs as root via exec; idempotent
+  cmd_exec "$name" "
+    id $VM_USER >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo $VM_USER;
+    echo '$VM_USER:$VM_PASSWORD' | chpasswd;
+    printf 'PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/00-lab.conf;
+    sed -i 's/^[# ]*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null;
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null;
+    IF=\$(for i in \$(ls /sys/class/net | grep -E '^en'); do ip -4 addr show \$i | grep -q 'inet ' || echo \$i; done | head -1);
+    if [ -n \"\$IF\" ]; then printf 'network:\n  version: 2\n  ethernets:\n    %s:\n      dhcp4: true\n      optional: true\n' \$IF > /etc/netplan/99-lab-lan.yaml; chmod 600 /etc/netplan/99-lab-lan.yaml; netplan apply; fi;
+    echo done" >/dev/null 2>&1 || true
+  sleep 4
+  echo "LAN IP: $(api GET "/api/instances/$name/access" | python3 -c "import sys,json;print(json.load(sys.stdin)['data'].get('lan_ip') or 'pending (re-check in a few seconds)')")"
 }
 
 cmd_create() {
@@ -127,6 +159,7 @@ cmd_teardown() {
 sub="${1:-}"; shift || true
 case "$sub" in
   profile-apply) cmd_profile_apply "$@" ;;
+  expose-lan)    cmd_expose_lan "$@" ;;
   create)        cmd_create "$@" ;;
   wait)          cmd_wait "$@" ;;
   exec)          cmd_exec "$@" ;;

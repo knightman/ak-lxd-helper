@@ -1,6 +1,6 @@
 # 002 — LLM serving (Ollama) on a VM
 
-- **Status:** ⚪ planned (spec stub — execute in a later pass)
+- **Status:** 🟢 done (2026-05-28)
 - **Skills:** `lxd-vm-create`, `lxd-vm-provision`
 - **Instance:** `lab-002-ollama`
 
@@ -33,10 +33,10 @@ install guide, pull a small model, and confirm the API serves a completion. Prov
 
 ## Acceptance criteria
 
-- [ ] `ollama --version` works; `ollama` systemd service active.
-- [ ] `curl http://localhost:11434/api/tags` lists the pulled model.
-- [ ] A `/api/generate` call returns a non-empty completion.
-- [ ] Service listens on `0.0.0.0:11434` (reachable from another VM).
+- [x] `ollama --version` works; `ollama` systemd service active.
+- [x] `curl http://localhost:11434/api/tags` lists the pulled model.
+- [x] A `/api/generate` call returns a non-empty completion.
+- [x] Service listens on `0.0.0.0:11434` (reachable from another VM).
 
 ## Verification
 
@@ -53,4 +53,18 @@ lab/scripts/lab.sh teardown lab-002-ollama
 
 ## Results
 
-_(pending)_
+**2026-05-28 — PASS.** `lab-002-ollama` created from `base-ubuntu`, then provisioned
+with `lxd-vm-provision`:
+
+- Installed via `curl -fsSL https://ollama.com/install.sh | sh` → **ollama 0.24.0**
+  (CPU-only; `WARNING: No NVIDIA/AMD GPU detected` — no GPU passthrough to the VM).
+- systemd drop-in `Environment="OLLAMA_HOST=0.0.0.0:11434"` → service **active**,
+  `ss` shows `LISTEN *:11434`.
+- `ollama pull llama3.2:1b` (1.3 GB) succeeded; `/api/tags` lists `llama3.2:1b`.
+- `/api/generate` (non-stream) returned a real completion: `"Hello from Lab-002."`
+  (`done: true`, `eval_count: 7`).
+- Bridge IP for project 003: **`10.10.249.8`** (lxdbr0).
+
+Notes: the arm64 install bundle is large (~minutes to download — it ships GPU/CUDA
+runtime even when unused), so install + model pull were run **detached + polled** to
+avoid the helper's 300s exec timeout. Left running for project 003.

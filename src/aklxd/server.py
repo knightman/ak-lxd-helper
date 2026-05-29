@@ -13,7 +13,7 @@ from pathlib import Path
 import aiohttp
 from aiohttp import web
 
-from . import config
+from . import config, host
 from .lxd import LXDClient, LXDError
 
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
@@ -70,6 +70,11 @@ async def api_server(request):
 @guard
 async def api_resources(request):
     return ok(await lxd(request).resources())
+
+
+async def api_host_stats(request):
+    # host.host_stats never raises; it returns {available:False,...} on failure
+    return ok(await host.host_stats())
 
 
 # --------------------------------------------------------------------------
@@ -145,6 +150,50 @@ async def api_instance_exec(request):
 # --------------------------------------------------------------------------
 # Images
 # --------------------------------------------------------------------------
+
+@guard
+async def api_instance_logs(request):
+    name = request.match_info["name"]
+    paths = await lxd(request).list_logs(name)
+    # paths look like /1.0/instances/{name}/logs/qemu.log -> expose just filenames
+    files = [p.rsplit("/", 1)[-1] for p in paths]
+    return ok(files)
+
+
+@guard
+async def api_instance_log_file(request):
+    name = request.match_info["name"]
+    fn = request.match_info["file"]
+    return ok({"file": fn, "content": await lxd(request).get_log_file(name, fn)})
+
+
+@guard
+async def api_instance_access(request):
+    """SSH access info for a VM: LAN IP (eth1), bridge IP (eth0), username/password."""
+    name = request.match_info["name"]
+    state = await lxd(request).instance_state(name)
+    net = (state or {}).get("network") or {}
+    bridge_ip = lan_ip = None
+    for iface, info in net.items():
+        if iface == "lo":
+            continue
+        for a in info.get("addresses", []):
+            if a.get("family") != "inet" or a.get("scope") != "global":
+                continue
+            # lxdbr0 subnet is 10.x; treat anything else as the LAN (macvlan) address
+            if a["address"].startswith("10."):
+                bridge_ip = bridge_ip or a["address"]
+            else:
+                lan_ip = lan_ip or a["address"]
+    user = config.LAB_VM_USER
+    return ok({
+        "username": user,
+        "password": config.LAB_VM_PASSWORD or None,
+        "lan_ip": lan_ip,
+        "bridge_ip": bridge_ip,
+        "ssh": f"ssh {user}@{lan_ip}" if lan_ip else None,
+    })
+
 
 @guard
 async def api_images(request):
@@ -410,6 +459,7 @@ def make_app(socket_path: str) -> web.Application:
         web.get("/", index),
         web.get("/api/server", api_server),
         web.get("/api/resources", api_resources),
+        web.get("/api/host/stats", api_host_stats),
 
         web.get("/api/instances", api_instances),
         web.post("/api/instances", api_instance_create),
@@ -418,6 +468,9 @@ def make_app(socket_path: str) -> web.Application:
         web.delete("/api/instances/{name}", api_instance_delete),
         web.post("/api/instances/{name}/state", api_instance_state),
         web.post("/api/instances/{name}/exec", api_instance_exec),
+        web.get("/api/instances/{name}/access", api_instance_access),
+        web.get("/api/instances/{name}/logs", api_instance_logs),
+        web.get("/api/instances/{name}/logs/{file}", api_instance_log_file),
 
         web.get("/api/images", api_images),
         web.post("/api/images/import", api_image_import),

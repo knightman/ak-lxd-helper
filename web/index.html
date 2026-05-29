@@ -23,10 +23,22 @@
   <main>
     <!-- Dashboard ----------------------------------------------------- -->
     <section id="tab-dashboard" class="tab active">
-      <h2>Host</h2>
-      <div id="dashboard-cards" class="cards"></div>
-      <h2>Instances at a glance</h2>
-      <div id="dashboard-instances"></div>
+      <div class="toolbar">
+        <label class="muted" style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="monitor-auto" checked> Auto-refresh (3s)
+        </label>
+        <button id="monitor-refresh">Refresh now</button>
+        <span id="monitor-status" class="muted"></span>
+      </div>
+      <h2>Host resources</h2>
+      <div id="host-cards" class="cards"></div>
+      <h2>Instances</h2>
+      <table id="monitor-table">
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>Status</th><th>CPU</th><th>Memory</th><th>Net ↓ / ↑</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <!-- Instances ----------------------------------------------------- -->

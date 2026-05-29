@@ -26,3 +26,19 @@ def resolve_socket() -> str:
 
 HOST = os.environ.get("AK_LXD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AK_LXD_PORT", "8080"))
+
+# -- host resource monitor -------------------------------------------------
+# How to collect host stats (CPU/GPU/mem/disk/net): "auto" runs locally when the
+# dashboard is on the LXD host (real snap socket present), else SSH to LXD_HOST.
+HOST_STATS = os.environ.get("HOST_STATS", "auto")  # auto | local | ssh | off
+LXD_HOST = os.environ.get("LXD_HOST")              # ssh target for dev/remote
+
+
+def host_is_local() -> bool:
+    """True if the real on-host LXD socket is in use (so /proc + nvidia-smi are local)."""
+    return os.path.exists("/var/snap/lxd/common/lxd/unix.socket")
+
+
+# -- VM LAN SSH credentials (shown in the dashboard Access card) -----------
+LAB_VM_USER = os.environ.get("LAB_VM_USER", "lab")
+LAB_VM_PASSWORD = os.environ.get("LAB_VM_PASSWORD", "")  # set in gitignored .env

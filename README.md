@@ -20,7 +20,7 @@ JSON API) so you don't have to keep the LXD docs open.
 | **Host monitor** | Live host CPU%, memory, **GPU** (nvidia-smi), disk, network on the Dashboard, plus per-instance CPU/mem/net (auto-refresh) |
 | **Logs** | Per-instance host-side LXD logs (`qemu.log`) + quick in-guest `journalctl`/`cloud-init`/`syslog` |
 | **LAN access** | Give VMs a real LAN IP (macvlan) + password SSH; dashboard shows IP + credentials + `ssh` command |
-| **Instances** | List with status/IP/memory; create container, VM, or **empty VM**; start / stop / restart / freeze; edit config (`limits.cpu`, `limits.memory`, profiles, description); rename; delete |
+| **Instances** | List with status/IP/memory; create container, VM, or **empty VM**; start / stop / restart / freeze; edit config (`limits.cpu`, `limits.memory`, profiles, description); snapshots (create/restore/delete); rename; delete |
 | **Run commands** | One-off non-interactive `exec` with captured stdout/stderr/exit code |
 | **Terminal** | Full interactive shell inside an instance (xterm.js over a WebSocket proxy) |
 | **Console** | Attach to an instance's serial console (boot messages, installer, login) |
@@ -233,6 +233,9 @@ All responses are `{"ok": true, "data": …}` or `{"ok": false, "error": …}`.
 | `POST /api/instances/{name}/exec` | `{"command":"uname -a"}` → stdout/stderr/return |
 | `POST /api/instances/{name}/devices` | `{"name","device":{…}}` attach a device |
 | `DELETE /api/instances/{name}/devices/{device}` | Detach a device |
+| `GET\|POST /api/instances/{name}/snapshots` | List / create snapshots |
+| `POST /api/instances/{name}/snapshots/restore` | Restore (`{"name":snap}`) |
+| `DELETE /api/instances/{name}/snapshots/{snap}` | Delete a snapshot |
 | `GET /api/images` | List images |
 | `POST /api/images/import` | `{"server","alias","protocol?","alias_local?","image_type?"}` |
 | `GET\|PATCH\|DELETE /api/images/{fingerprint}` | Inspect / edit / delete |
@@ -425,7 +428,8 @@ The [`lab/`](lab/) directory is a spec-driven workspace for building and testing
 multi-VM experiments on the host (Ubuntu base + prereqs, LLM servers, multi-VM
 setups). Each experiment is a short spec in `lab/specs/`; reusable building blocks are
 **Claude Code skills** in [`.claude/skills/`](.claude/skills) (`lxd-vm-create`,
-`lxd-vm-provision`, `lxd-multi-connect`); [`lab/PROJECTS.md`](lab/PROJECTS.md) is the
+`lxd-vm-provision`, `lxd-multi-connect`, and `lxd-vm-manage` for day-to-day
+lifecycle/snapshots/devices/packages); [`lab/PROJECTS.md`](lab/PROJECTS.md) is the
 running record. Provisioning is declarative via cloud-init + LXD profiles, driven
 through this helper's API by `lab/scripts/lab.sh`. See [`lab/README.md`](lab/README.md).
 

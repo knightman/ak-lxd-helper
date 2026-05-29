@@ -32,6 +32,21 @@ write_files:
   - path: /etc/ssh/sshd_config.d/00-lab-ssh.conf
     content: |
       PasswordAuthentication yes
+  # LXD adds the eth1 macvlan NIC but the image's netplan only DHCPs the primary
+  # interface; this brings up the extra en* NIC (the LAN one) so the VM gets a LAN IP.
+  - path: /usr/local/sbin/lab-lan-up.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      for i in $(ls /sys/class/net | grep -E '^en'); do
+        if ! ip -4 addr show "$i" | grep -q 'inet '; then
+          printf 'network:\n  version: 2\n  ethernets:\n    %s:\n      dhcp4: true\n      optional: true\n' "$i" > /etc/netplan/99-lab-lan.yaml
+          chmod 600 /etc/netplan/99-lab-lan.yaml
+          netplan apply
+          break
+        fi
+      done
 runcmd:
   - [ bash, -lc, "test -x /opt/conda/bin/conda || { A=$(uname -m); curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${A}.sh -o /tmp/mf.sh && bash /tmp/mf.sh -b -p /opt/conda && rm -f /tmp/mf.sh; }" ]
   - [ bash, -lc, "ln -sf /opt/conda/bin/conda /usr/local/bin/conda" ]
+  - [ bash, -lc, "/usr/local/sbin/lab-lan-up.sh" ]

@@ -8,7 +8,15 @@
 #   lab.sh exec <name> <cmd...>      run a command in the VM, stream stdout/stderr, exit with its code
 #   lab.sh ip <name>                 print the VM's lxdbr0 IPv4
 #   lab.sh verify <name>             assert project-001 acceptance criteria
-#   lab.sh teardown <name>           stop + delete the VM
+#   lab.sh start|stop|restart <name> lifecycle
+#   lab.sh snapshots <name>          list snapshots
+#   lab.sh snapshot <name> <snap>    create a snapshot
+#   lab.sh restore <name> <snap>     restore a snapshot
+#   lab.sh snap-rm <name> <snap>     delete a snapshot
+#   lab.sh pkg <name> update|upgrade|install [pkgs]   package management (via exec)
+#   lab.sh device-add <name> <dev> <type> [key=val...]   attach a device
+#   lab.sh device-rm <name> <dev>    detach a device
+#   lab.sh teardown|delete <name>    stop + delete the VM
 #
 # Env: AK_LXD_URL (default http://127.0.0.1:8080), LAB_CPU, LAB_MEM, LAB_DISK,
 #      LAB_RELEASE (default 24.04), LAB_IMAGE_SERVER.
@@ -156,6 +164,71 @@ cmd_teardown() {
   api DELETE "/api/instances/$name" >/dev/null && echo "deleted $name"
 }
 
+# -- lifecycle -------------------------------------------------------------
+_state() {  # _state <name> <action> <force>
+  api POST "/api/instances/$1/state" "{\"action\":\"$2\",\"force\":${3:-false}}" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('$2:', (d.get('data') or {}).get('status') if d.get('ok') else d.get('error'))"
+}
+cmd_start()   { _state "${1:?usage: start <name>}" start false; }
+cmd_stop()    { _state "${1:?usage: stop <name>}" stop true; }
+cmd_restart() { _state "${1:?usage: restart <name>}" restart true; }
+
+# -- snapshots -------------------------------------------------------------
+cmd_snapshots() {
+  api GET "/api/instances/${1:?usage: snapshots <name>}/snapshots" | python3 -c "
+import sys,json
+d=json.load(sys.stdin).get('data') or []
+names=[ (s.get('name') if isinstance(s,dict) else str(s)).rsplit('/',1)[-1] for s in d ]
+print('\n'.join('  - '+n for n in names) if names else '  (no snapshots)')"
+}
+cmd_snapshot() {
+  local n="${1:?usage: snapshot <name> <snap>}" s="${2:?usage: snapshot <name> <snap>}"
+  api POST "/api/instances/$n/snapshots" "$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1]}))' "$s")" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('snapshot:', (d.get('data') or {}).get('status') if d.get('ok') else d.get('error'))"
+}
+cmd_restore() {
+  local n="${1:?usage: restore <name> <snap>}" s="${2:?usage: restore <name> <snap>}"
+  api POST "/api/instances/$n/snapshots/restore" "$(python3 -c 'import json,sys;print(json.dumps({"name":sys.argv[1]}))' "$s")" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('restore:', (d.get('data') or {}).get('status') if d.get('ok') else d.get('error'))"
+}
+cmd_snap_rm() {
+  api DELETE "/api/instances/${1:?usage: snap-rm <name> <snap>}/snapshots/${2:?usage: snap-rm <name> <snap>}" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('deleted:', d.get('ok'))"
+}
+
+# -- packages (via exec; runs as root) -------------------------------------
+cmd_pkg() {
+  local n="${1:?usage: pkg <name> update|upgrade|install [pkgs]}" op="${2:?update|upgrade|install}"; shift 2 || true
+  case "$op" in
+    update)  cmd_exec "$n" "apt-get update" ;;
+    upgrade) cmd_exec "$n" "DEBIAN_FRONTEND=noninteractive apt-get -y upgrade" ;;
+    install) [ -n "$*" ] || die "pkg install needs package names"
+             cmd_exec "$n" "apt-get update >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y $*" ;;
+    *) die "pkg op must be update|upgrade|install" ;;
+  esac
+}
+
+# -- devices ---------------------------------------------------------------
+cmd_device_add() {  # device-add <name> <devname> <type> key=val ...
+  local n="${1:?usage: device-add <name> <dev> <type> [key=val ...]}"
+  local dev="${2:?dev name}" type="${3:?device type}"; shift 3
+  local payload
+  payload=$(python3 - "$dev" "$type" "$@" <<'PY'
+import json,sys
+d={"type":sys.argv[2]}
+for kv in sys.argv[3:]:
+    k,_,v=kv.partition('='); d[k]=v
+print(json.dumps({"name":sys.argv[1],"device":d}))
+PY
+)
+  api POST "/api/instances/$n/devices" "$payload" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('attach:', 'ok' if d.get('ok') else d.get('error'))"
+}
+cmd_device_rm() {
+  api DELETE "/api/instances/${1:?usage: device-rm <name> <dev>}/devices/${2:?dev name}" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('detach:', d.get('ok'))"
+}
+
 sub="${1:-}"; shift || true
 case "$sub" in
   profile-apply) cmd_profile_apply "$@" ;;
@@ -165,6 +238,16 @@ case "$sub" in
   exec)          cmd_exec "$@" ;;
   ip)            cmd_ip "$@" ;;
   verify)        cmd_verify "$@" ;;
-  teardown)      cmd_teardown "$@" ;;
+  start)         cmd_start "$@" ;;
+  stop)          cmd_stop "$@" ;;
+  restart)       cmd_restart "$@" ;;
+  snapshots)     cmd_snapshots "$@" ;;
+  snapshot)      cmd_snapshot "$@" ;;
+  restore)       cmd_restore "$@" ;;
+  snap-rm)       cmd_snap_rm "$@" ;;
+  pkg)           cmd_pkg "$@" ;;
+  device-add)    cmd_device_add "$@" ;;
+  device-rm)     cmd_device_rm "$@" ;;
+  teardown|delete) cmd_teardown "$@" ;;
   *) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

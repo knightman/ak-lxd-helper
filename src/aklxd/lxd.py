@@ -265,6 +265,24 @@ class LXDClient:
         resp = await self._request("POST", "/1.0/images", data=body)
         return await self.wait_operation(resp, timeout=900)
 
+    # -- snapshots ---------------------------------------------------------
+
+    async def list_snapshots(self, name: str) -> list:
+        return await self._meta(f"/1.0/instances/{name}/snapshots?recursion=1")
+
+    async def create_snapshot(self, name: str, snapshot: str, stateful: bool = False) -> dict:
+        resp = await self._request("POST", f"/1.0/instances/{name}/snapshots",
+                                   data={"name": snapshot, "stateful": stateful})
+        return await self.wait_operation(resp, timeout=300)
+
+    async def restore_snapshot(self, name: str, snapshot: str) -> dict:
+        resp = await self._request("PUT", f"/1.0/instances/{name}", data={"restore": snapshot})
+        return await self.wait_operation(resp, timeout=300)
+
+    async def delete_snapshot(self, name: str, snapshot: str) -> dict:
+        resp = await self._request("DELETE", f"/1.0/instances/{name}/snapshots/{snapshot}")
+        return await self.wait_operation(resp)
+
     # -- logs --------------------------------------------------------------
 
     async def list_logs(self, name: str) -> list:

@@ -152,6 +152,35 @@ async def api_instance_exec(request):
 # --------------------------------------------------------------------------
 
 @guard
+async def api_snapshots(request):
+    return ok(await lxd(request).list_snapshots(request.match_info["name"]))
+
+
+@guard
+async def api_snapshot_create(request):
+    name = request.match_info["name"]
+    p = await read_json(request)
+    if not p.get("name"):
+        return fail("'name' (snapshot name) is required")
+    return ok(await lxd(request).create_snapshot(name, p["name"], bool(p.get("stateful", False))))
+
+
+@guard
+async def api_snapshot_restore(request):
+    name = request.match_info["name"]
+    p = await read_json(request)
+    if not p.get("name"):
+        return fail("'name' (snapshot to restore) is required")
+    return ok(await lxd(request).restore_snapshot(name, p["name"]))
+
+
+@guard
+async def api_snapshot_delete(request):
+    return ok(await lxd(request).delete_snapshot(
+        request.match_info["name"], request.match_info["snapshot"]))
+
+
+@guard
 async def api_instance_logs(request):
     name = request.match_info["name"]
     paths = await lxd(request).list_logs(name)
@@ -469,6 +498,10 @@ def make_app(socket_path: str) -> web.Application:
         web.post("/api/instances/{name}/state", api_instance_state),
         web.post("/api/instances/{name}/exec", api_instance_exec),
         web.get("/api/instances/{name}/access", api_instance_access),
+        web.get("/api/instances/{name}/snapshots", api_snapshots),
+        web.post("/api/instances/{name}/snapshots", api_snapshot_create),
+        web.post("/api/instances/{name}/snapshots/restore", api_snapshot_restore),
+        web.delete("/api/instances/{name}/snapshots/{snapshot}", api_snapshot_delete),
         web.get("/api/instances/{name}/logs", api_instance_logs),
         web.get("/api/instances/{name}/logs/{file}", api_instance_log_file),
 

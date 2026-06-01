@@ -111,8 +111,11 @@ class LXDClient:
         return await self.wait_operation(resp, timeout=timeout + 30)
 
     async def update_instance(self, name: str, config: dict) -> dict:
-        # PATCH merges config; PUT would replace the whole record.
-        return await self._request("PATCH", f"/1.0/instances/{name}", data=config)
+        # PATCH merges config; PUT would replace the whole record. LXD returns
+        # an async operation for config changes — wait for it so callers see the
+        # change applied before re-reading the instance.
+        resp = await self._request("PATCH", f"/1.0/instances/{name}", data=config)
+        return await self.wait_operation(resp)
 
     async def rename_instance(self, name: str, new_name: str) -> dict:
         resp = await self._request("POST", f"/1.0/instances/{name}", data={"name": new_name})
@@ -372,13 +375,26 @@ class LXDClient:
 
     async def add_device(self, instance: str, dev_name: str, device: dict) -> dict:
         """Attach a device to an instance (PATCH merges into existing devices)."""
-        return await self._request("PATCH", f"/1.0/instances/{instance}",
+        resp = await self._request("PATCH", f"/1.0/instances/{instance}",
                                    data={"devices": {dev_name: device}})
+        return await self.wait_operation(resp)
 
     async def remove_device(self, instance: str, dev_name: str) -> dict:
-        """Detach a device. PATCH can't delete keys, so read-modify-write with PUT."""
+        """Detach a device. PATCH can't delete keys, so read-modify-write with PUT,
+        sending only the writable fields (LXD ignores PUTs that include read-only
+        fields like expanded_devices / status_code)."""
         inst = await self.get_instance(instance)
-        devices = inst.get("devices", {}) or {}
-        devices.pop(dev_name, None)
-        inst["devices"] = devices
-        return await self._request("PUT", f"/1.0/instances/{instance}", data=inst)
+        devices = (inst.get("devices") or {}).copy()
+        if dev_name not in devices:
+            raise LXDError(f"device '{dev_name}' not on instance '{instance}'")
+        devices.pop(dev_name)
+        body = {
+            "architecture": inst.get("architecture"),
+            "config": inst.get("config", {}),
+            "devices": devices,
+            "profiles": inst.get("profiles", []),
+            "description": inst.get("description", ""),
+            "ephemeral": bool(inst.get("ephemeral", False)),
+        }
+        resp = await self._request("PUT", f"/1.0/instances/{instance}", data=body)
+        return await self.wait_operation(resp)

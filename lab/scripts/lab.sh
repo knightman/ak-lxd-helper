@@ -34,10 +34,11 @@ VM_USER="${LAB_VM_USER:-lab}"; VM_PASSWORD="${LAB_VM_PASSWORD:-}"
 LAN_PARENT="${LAB_LAN_PARENT:-enP7s7}"
 
 die() { echo "error: $*" >&2; exit 1; }
-api() { # api METHOD PATH [json]
+api() { # api METHOD PATH [json] — return the JSON body even on HTTP errors so
+        # callers can read {"ok": false, "error": ...}. (Avoid -f, which silences it.)
   local m="$1" p="$2" d="${3:-}"
-  if [ -n "$d" ]; then curl -fsS -X "$m" "$URL$p" -H 'content-type: application/json' -d "$d"
-  else curl -fsS -X "$m" "$URL$p"; fi
+  if [ -n "$d" ]; then curl -sS -X "$m" "$URL$p" -H 'content-type: application/json' -d "$d"
+  else curl -sS -X "$m" "$URL$p"; fi
 }
 # extract data.stdout (or '') from an exec response on stdin
 _exec_stdout() { python3 -c "import sys,json

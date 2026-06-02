@@ -35,6 +35,27 @@ declarative and `exec`/Terminal work the moment the agent is up — no manual
 Re-run `profile-apply` after changing CPU/MEM/DISK to update the profile (existing
 VMs are not retroactively changed).
 
+## Containers (GPU workloads, Grace-Blackwell)
+
+`lab.sh create-container <name> [profiles_csv]` creates an LXD **container** (vs
+the VM created by `create`) by passing `image_type: container` to the helper. Use
+this for GPU workloads on **Grace-Blackwell / GB10** where VM GPU passthrough is
+rejected by the platform firmware (`vfio-pci ... 1:1 IOMMU mapping required`).
+
+A GPU-sharing container needs a profile with:
+
+```yaml
+config:
+  nvidia.runtime: "true"      # NVIDIA Container Toolkit on the host
+  limits.memory: 32GiB        # the limit is what vLLM sees as "GPU memory" (unified-mem)
+devices:
+  gpu0: { type: gpu, gputype: physical }
+  root: { path: /, pool: default, size: 100GiB, type: disk }
+```
+
+The host must have `nvidia-container-toolkit` installed (`nvidia-container-cli
+--version`) and LXD must report `nvidia_runtime` in `lxc info`. See spec 004.
+
 ## How it maps to the helper API
 
 - `profile-apply` → `PUT /api/profiles/base-ubuntu`

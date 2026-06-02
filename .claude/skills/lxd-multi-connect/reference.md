@@ -48,6 +48,50 @@ lab/scripts/lab.sh exec lab-003-openwebui \
 - **`/api/chat/completions` 400s on a brand-new instance** (`'NoneType'...startswith`);
   use `/ollama/api/*` proxy or the browser UI for chat.
 
+## Example: pi → vLLM (lab project 005 — verified 2026-06-02)
+
+pi (earendil-works/pi) reads custom OpenAI-compatible providers from
+`~/.pi/agent/models.json`. To use a local vLLM endpoint:
+
+```json
+{
+  "providers": {
+    "vllm": {
+      "name": "vLLM",
+      "baseUrl": "http://10.10.249.171:8000/v1",
+      "apiKey": "none",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "Qwen/Qwen3-8B",
+          "name": "Qwen3-8B (vLLM)",
+          "api": "openai-completions",
+          "provider": "vllm",
+          "baseUrl": "http://10.10.249.171:8000/v1",
+          "reasoning": false,
+          "input": ["text"],
+          "cost": {"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+          "contextWindow": 32768,
+          "maxTokens": 4096
+        }
+      ]
+    }
+  }
+}
+```
+
+Quirks (learned):
+- pi migrates **UPPERCASE** strings (e.g. `EMPTY`) to `$ENV` references. Use lowercase
+  literals like `"none"` for placeholder API keys.
+- pi's `.ts` build scripts require **Node 22+** (we use Node 24). Node 20 from distro
+  apt fails with `ERR_UNKNOWN_FILE_EXTENSION` for `.ts`.
+- `pi --provider vllm --model vllm/Qwen/Qwen3-8B` routes through the custom provider.
+
+For persistent remote access, run pi inside a tmux session managed by a systemd
+**user** unit (`loginctl enable-linger <user>` first); the wrapper script
+`exec tmux new -A -s pi 'pi --provider vllm --model vllm/Qwen/Qwen3-8B'` does
+attach-or-create on each SSH login.
+
 ## Notes
 
 - Prefer **IP discovery at runtime** (`lab.sh ip`) over hardcoding — DHCP leases change.

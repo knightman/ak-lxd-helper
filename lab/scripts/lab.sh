@@ -96,18 +96,21 @@ cmd_expose_lan() {
   echo "LAN IP: $(api GET "/api/instances/$name/access" | python3 -c "import sys,json;print(json.load(sys.stdin)['data'].get('lan_ip') or 'pending (re-check in a few seconds)')")"
 }
 
-cmd_create() {
-  local name="${1:?usage: create <name> [profile]}" profile="${2:-base-ubuntu}"
+cmd_create()           { _create_instance "${1:?usage: create <name> [profiles_csv]}" "${2:-base-ubuntu}" virtual-machine; }
+cmd_create_container() { _create_instance "${1:?usage: create-container <name> [profiles_csv]}" "${2:-base-ubuntu}" container; }
+
+_create_instance() {  # name, profiles_csv, type
+  local name="$1" profiles_csv="$2" type="$3"
   local payload
-  payload=$(python3 - "$name" "$profile" "$IMAGE_SERVER" "$RELEASE" <<'PY'
+  payload=$(python3 - "$name" "$profiles_csv" "$IMAGE_SERVER" "$RELEASE" "$type" <<'PY'
 import json,sys
-name,profile,server,alias=sys.argv[1:5]
-print(json.dumps({"name":name,"type":"virtual-machine","start":True,
-  "profiles":[profile],
-  "image":{"server":server,"protocol":"simplestreams","alias":alias}}))
+name,profs,server,alias,typ=sys.argv[1:6]
+print(json.dumps({"name":name,"type":typ,"start":True,
+  "profiles":[p.strip() for p in profs.split(",") if p.strip()],
+  "image":{"server":server,"protocol":"simplestreams","alias":alias,"image_type":typ}}))
 PY
 )
-  echo "creating $name (VM, ubuntu $RELEASE cloud image, profile $profile)..."
+  echo "creating $name ($type, ubuntu $RELEASE, profiles=[$profiles_csv])..."
   api POST "/api/instances" "$payload" \
     | python3 -c "import sys,json;d=json.load(sys.stdin);print('  ->', (d.get('data') or {}).get('status') if d.get('ok') else 'ERROR: '+str(d.get('error')))"
 }
@@ -235,6 +238,7 @@ case "$sub" in
   profile-apply) cmd_profile_apply "$@" ;;
   expose-lan)    cmd_expose_lan "$@" ;;
   create)        cmd_create "$@" ;;
+  create-container) cmd_create_container "$@" ;;
   wait)          cmd_wait "$@" ;;
   exec)          cmd_exec "$@" ;;
   ip)            cmd_ip "$@" ;;

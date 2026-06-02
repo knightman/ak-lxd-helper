@@ -8,6 +8,8 @@ Each row links to its spec; "Skills" lists the building blocks it composes.
 | 001 | Ubuntu base VM + prereqs (python, conda) | 🟢 done | [001](specs/001-ubuntu-base.md) | `lxd-vm-create` | `lab-001-ubuntu-base` |
 | 002 | LLM serving (Ollama) on a VM | 🟢 done | [002](specs/002-llm-serving-ollama.md) | `lxd-vm-create`, `lxd-vm-provision` | `lab-002-ollama` |
 | 003 | Open WebUI ↔ Ollama (two VMs) | 🟢 done | [003](specs/003-openwebui-ollama.md) | `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect` | `lab-003-openwebui`, `lab-002-ollama` |
+| 004 | vLLM serving Qwen3-8B on GB10 (container, GPU shared) | 🟢 done | [004](specs/004-vllm-qwen.md) | `lxd-vm-create` (container), `lxd-vm-provision` | `lab-004-vllm` |
+| 005 | pi agent harness wired to lab-004 vLLM + persistent tmux | 🟢 done | [005](specs/005-pi-with-qwen.md) | `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect` | `lab-005-pi`, `lab-004-vllm` |
 
 ## Log
 
@@ -24,6 +26,17 @@ Each row links to its spec; "Skills" lists the building blocks it composes.
   `0.0.0.0:8080`, `OLLAMA_BASE_URL=http://10.10.249.8:11434`. lxd-multi-connect verified:
   cross-VM reach over lxdbr0, Open WebUI `/api/models` lists `llama3.2:1b`, and a
   completion proxied through Open WebUI → Ollama VM returned text. Both VMs left running.
+- 2026-06-02 — **004 PASS.** `lab-004-vllm`: **container** (not VM — GB10 firmware
+  rejects VFIO passthrough with "1:1 IOMMU mapping required"; container path with
+  `nvidia.runtime=true` is canonical on Grace-Blackwell). vLLM 0.22.0 + torch 2.11.0
+  + CUDA 13 stack; serves `Qwen/Qwen3-8B` on `0.0.0.0:8000` with
+  `--gpu-memory-utilization 0.20 --max-model-len 8192`. Bridge IP 10.10.249.171.
+- 2026-06-02 — **005 PASS.** `lab-005-pi`: pi (earendil-works) built from source on
+  Node 24 (Node 20 can't run pi's TS build scripts); `~/.pi/agent/models.json`
+  registers `vllm` provider with `api: openai-completions` pointing at lab-004; pi
+  one-shot routes through vLLM and returns Qwen3-8B text. Persistent tmux session
+  `pi` via systemd user unit (lingering enabled). LAN SSH: `ssh lab@192.168.1.152`
+  then `pi-tmux`. All 10 checks in `lab/tests/lab-004-005.sh` green.
 
 ## How to add a project
 

@@ -38,9 +38,15 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/bash
-      for i in $(ls /sys/class/net | grep -E '^en'); do
+      # Bring up the extra LAN NIC (macvlan) with DHCP. Matches both VM names
+      # (enp5s0/enp6s0 — biosdevname) and container names (eth0/eth1). Sets
+      # dhcp4-overrides.route-metric: 50 so the LAN NIC's default route wins
+      # over lxdbr0's (both DHCP defaults arrive at metric 100 otherwise, and
+      # the kernel picks lxdbr0 — which is blocked behind the host's FORWARD
+      # chain when Docker is installed).
+      for i in $(ls /sys/class/net | grep -E '^(en|eth)'); do
         if ! ip -4 addr show "$i" | grep -q 'inet '; then
-          printf 'network:\n  version: 2\n  ethernets:\n    %s:\n      dhcp4: true\n      optional: true\n' "$i" > /etc/netplan/99-lab-lan.yaml
+          printf 'network:\n  version: 2\n  ethernets:\n    %s:\n      dhcp4: true\n      dhcp4-overrides:\n        route-metric: 50\n      optional: true\n' "$i" > /etc/netplan/99-lab-lan.yaml
           chmod 600 /etc/netplan/99-lab-lan.yaml
           netplan apply
           break

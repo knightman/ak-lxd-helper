@@ -430,7 +430,9 @@ setups). Each experiment is a short spec in `lab/specs/`; reusable building bloc
 **Claude Code skills** in [`.claude/skills/`](.claude/skills) (`lxd-vm-create`,
 `lxd-vm-provision`, `lxd-multi-connect`, and `lxd-vm-manage` for day-to-day
 lifecycle/snapshots/devices/packages); [`lab/PROJECTS.md`](lab/PROJECTS.md) is the
-running record. Provisioning is declarative via cloud-init + LXD profiles, driven
+running record. `lab.sh create-container` builds GPU-sharing **containers** (e.g.
+for vLLM on Grace-Blackwell, where VM GPU passthrough is rejected by firmware —
+see `lab/scripts/host-vfio-setup.sh` header for the constraint). Provisioning is declarative via cloud-init + LXD profiles, driven
 through this helper's API by `lab/scripts/lab.sh`. See [`lab/README.md`](lab/README.md).
 
 ## Roadmap

@@ -144,6 +144,8 @@ class LXDClient:
                 "protocol": image.get("protocol", "simplestreams"),
                 "alias": image.get("alias"),
             }
+            if image.get("image_type"):  # force "container" or "virtual-machine" variant
+                source["image_type"] = image["image_type"]
         elif image.get("fingerprint"):
             source = {"type": "image", "fingerprint": image["fingerprint"]}
         else:  # local alias

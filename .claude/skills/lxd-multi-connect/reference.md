@@ -92,6 +92,10 @@ For persistent remote access, run pi inside a tmux session managed by a systemd
 `exec tmux new -A -s pi 'pi --provider vllm --model vllm/Qwen/Qwen3-8B'` does
 attach-or-create on each SSH login.
 
+**SSH must allocate a TTY** (`ssh -t`) for any non-interactive pi command — without
+it pi blocks on stdin/TTY detection and hangs. Use `alias pi='ssh -t user@host pi-tmux'`
+for one-touch access from a workstation.
+
 ## Notes
 
 - Prefer **IP discovery at runtime** (`lab.sh ip`) over hardcoding — DHCP leases change.

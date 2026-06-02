@@ -63,15 +63,24 @@ lab/tests/lab-004-005.sh         # full suite (proves 004 + 005 end-to-end)
 
 ## How to use it (remote terminal access)
 
-From the LAN (laptop):
+From the LAN (laptop) — `ssh -t` is required for any non-interactive pi command;
+without it pi waits on a TTY/stdin and hangs.
 
 ```bash
-ssh lab@192.168.1.152                           # macvlan LAN IP
-pi-tmux                                          # attaches to the persistent pi session
-# (in pi) ask anything; routed through vLLM on lab-004
-# Ctrl-b d                                       # detach (session keeps running)
-ssh lab@192.168.1.152 -t pi-tmux                # one-shot: ssh + attach
+# interactive (recommended): drops into the persistent tmux session
+ssh -t lab@192.168.1.152 pi-tmux
+# Ctrl-b d to detach; the session keeps running (systemd user unit + lingering)
+
+# one-shot from the shell:
+ssh -t lab@192.168.1.152 \
+  "/home/lab/pi/pi-test.sh --provider vllm --model vllm/Qwen/Qwen3-8B --no-tools -p 'YOUR PROMPT'"
+
+# shell alias on your laptop:
+alias pi='ssh -t lab@192.168.1.152 pi-tmux'
 ```
+
+Note: pi/Qwen3 emits `<think>...</think>` reasoning blocks before the final answer
+(that's Qwen3's normal behavior, not a bug).
 
 Credentials: `lab` / `$LAB_VM_PASSWORD` from `.env` (dashboard's **Overview → LAN access** card shows them).
 

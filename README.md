@@ -296,11 +296,26 @@ ak-lxd-helper/
 ├── src/aklxd/
 │   ├── config.py           # socket/host/port resolution
 │   ├── lxd.py              # async LXD REST client
+│   ├── host.py             # async host stats (/proc + nvidia-smi, local or ssh)
 │   └── server.py           # aiohttp app: REST + WebSocket proxy
-└── web/
-    ├── index.html
-    ├── style.css
-    └── app.js              # dashboard SPA (xterm.js via CDN)
+├── web/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js              # dashboard SPA (xterm.js via CDN)
+├── lab/                    # spec-driven LXD experiments
+│   ├── README.md           # lab "constitution" + conventions
+│   ├── PROJECTS.md         # running record of every mini-project
+│   ├── specs/              # one lightweight spec per project
+│   ├── profiles/           # cloud-init / LXD profiles
+│   ├── scripts/
+│   │   ├── lab.sh          # CLI over the dashboard API
+│   │   └── host-vfio-setup.sh  # discrete-GPU VFIO setup (does NOT work on GB10)
+│   └── tests/lab-004-005.sh    # end-to-end unit tests
+└── .claude/skills/         # reusable Claude Code skills (committed)
+    ├── lxd-vm-create/
+    ├── lxd-vm-provision/
+    ├── lxd-multi-connect/
+    └── lxd-vm-manage/
 ```
 
 ---
@@ -424,16 +439,66 @@ Notes:
 
 ## Lab: spec-driven multi-system experiments
 
-The [`lab/`](lab/) directory is a spec-driven workspace for building and testing
-multi-VM experiments on the host (Ubuntu base + prereqs, LLM servers, multi-VM
-setups). Each experiment is a short spec in `lab/specs/`; reusable building blocks are
-**Claude Code skills** in [`.claude/skills/`](.claude/skills) (`lxd-vm-create`,
-`lxd-vm-provision`, `lxd-multi-connect`, and `lxd-vm-manage` for day-to-day
-lifecycle/snapshots/devices/packages); [`lab/PROJECTS.md`](lab/PROJECTS.md) is the
-running record. `lab.sh create-container` builds GPU-sharing **containers** (e.g.
-for vLLM on Grace-Blackwell, where VM GPU passthrough is rejected by firmware —
-see `lab/scripts/host-vfio-setup.sh` header for the constraint). Provisioning is declarative via cloud-init + LXD profiles, driven
-through this helper's API by `lab/scripts/lab.sh`. See [`lab/README.md`](lab/README.md).
+[`lab/`](lab/) is a spec-driven workspace for building and testing multi-VM (and
+multi-container) experiments on the host. Each experiment is a short spec in
+[`lab/specs/`](lab/specs); reusable building blocks are **Claude Code skills** in
+[`.claude/skills/`](.claude/skills) (`lxd-vm-create`, `lxd-vm-provision`,
+`lxd-multi-connect`, `lxd-vm-manage`); [`lab/PROJECTS.md`](lab/PROJECTS.md) is the
+running record. Provisioning is declarative (cloud-init + LXD profiles), driven
+through the dashboard API by [`lab/scripts/lab.sh`](lab/scripts/lab.sh). See
+[`lab/README.md`](lab/README.md) for conventions.
+
+### Projects
+
+| # | What it builds | Skills | Spec |
+|---|---|---|---|
+| 001 | Ubuntu base VM + prereqs (python, conda) | `lxd-vm-create` | [001](lab/specs/001-ubuntu-base.md) |
+| 002 | LLM serving via **Ollama** on a VM | `lxd-vm-create`, `lxd-vm-provision` | [002](lab/specs/002-llm-serving-ollama.md) |
+| 003 | **Open WebUI ↔ Ollama** (two VMs talking over `lxdbr0`) | + `lxd-multi-connect` | [003](lab/specs/003-openwebui-ollama.md) |
+| 004 | **vLLM** serving Qwen3-8B on the GB10 GPU (**container** with `nvidia.runtime`; VM passthrough is rejected by GB10 firmware) | `lxd-vm-create` (container), `lxd-vm-provision` | [004](lab/specs/004-vllm-qwen.md) |
+| 005 | **pi** agent harness (earendil-works) wired to lab-004's vLLM + persistent tmux | + `lxd-multi-connect` | [005](lab/specs/005-pi-with-qwen.md) |
+
+### Quick start: spin up a lab project
+
+```bash
+# 0. one-time setup (dev laptop): forward the socket, run the dashboard
+scripts/forward-socket.sh &      # leave running
+bin/ak-lxd-helper                # http://127.0.0.1:8080
+# (or on the LXD host directly, just bin/ak-lxd-helper)
+
+# 1. apply the base-ubuntu profile (cloud-init + macvlan LAN NIC)
+lab/scripts/lab.sh profile-apply base-ubuntu
+
+# 2. project 001 — base Ubuntu VM with python + conda
+lab/scripts/lab.sh create  lab-001-ubuntu-base
+lab/scripts/lab.sh wait    lab-001-ubuntu-base
+lab/scripts/lab.sh verify  lab-001-ubuntu-base
+
+# 3. project 002 — Ollama on a VM (see spec for provisioning recipe)
+lab/scripts/lab.sh create  lab-002-ollama
+lab/scripts/lab.sh wait    lab-002-ollama
+# install + smoke-test per lab/specs/002-llm-serving-ollama.md
+
+# 4. project 004 — vLLM in a GPU-sharing CONTAINER (Grace-Blackwell path)
+#    create a GPU profile (gpu device + nvidia.runtime=true + 100GiB disk)
+#    then: lab.sh create-container lab-004-vllm base-ubuntu,gpu-share
+#    full recipe: lab/specs/004-vllm-qwen.md
+
+# 5. project 005 — pi wired to lab-004 + persistent tmux
+#    full recipe: lab/specs/005-pi-with-qwen.md
+#    once running, from your laptop:
+#      alias pi='ssh -t lab@<lab-005-LAN-IP> pi-tmux'
+#      pi   # drops into the live coding-agent session
+
+# end-to-end unit tests for projects 004 + 005:
+bash lab/tests/lab-004-005.sh
+
+# day-to-day management (any project):
+lab/scripts/lab.sh snapshot|restore|snap-rm|start|stop|restart|pkg|device-add|device-rm|delete
+```
+
+The dashboard's **Devices** and **LAN access** cards show each instance's
+networking + the `ssh` command to reach it from the LAN.
 
 ## Roadmap
 

@@ -1,6 +1,6 @@
 # 005 — pi agent (earendil-works/pi) wired to lab-004 vLLM
 
-- **Status:** 🟢 done (2026-06-02)
+- **Status:** 🟢 done (2026-06-02) · **v2 2026-06-03**: backend model upgraded to **Qwen3-VL-30B-A3B-Instruct-FP8** (adds image→text)
 - **Skills:** `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect`
 - **Instance:** `lab-005-pi` (VM, base profile) + dependency on `lab-004-vllm`
 
@@ -132,3 +132,18 @@ Lessons (folded into the framework):
 - pi's `models.json` migrates all-UPPERCASE values to `$ENV` references; use
   lowercase literals for things like `apiKey: "none"`.
 - pi's `--model` accepts `<provider>/<id>` form; `vllm/Qwen/Qwen3-8B` routes to our custom provider.
+
+### v2 — pointed at Qwen3-VL-30B-A3B-Instruct-FP8 (2026-06-03 — PASS)
+
+Backend model swapped (see 004 v2). pi changes, all verified by
+`lab/tests/lab-004-005.sh` (14/14):
+- `~lab/.pi/agent/models.json`: `id` → `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`,
+  `input: ["text","image"]` (was `["text"]`), `contextWindow: 131072`.
+- Model string updated in **both** launchers: `~lab/.local/bin/pi-tmux` and the
+  `pi-session.service` user unit (→ `vllm/Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`);
+  `systemctl --user restart pi-session.service`.
+- **Image→text works through pi**: attach an image with an `@path` mention in the
+  prompt — pi's `openai-completions` provider sends it as a base64 `image_url`. Tested:
+  `pi -p "dominant colour of @/home/lab/red.png?"` → "red". (`/image` in interactive
+  mode + clipboard paste also work.)
+- Tool calling / web_search still green on the new model (hermes parser on the server).

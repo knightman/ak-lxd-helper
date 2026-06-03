@@ -8,8 +8,8 @@ Each row links to its spec; "Skills" lists the building blocks it composes.
 | 001 | Ubuntu base VM + prereqs (python, conda) | 🟢 done | [001](specs/001-ubuntu-base.md) | `lxd-vm-create` | `lab-001-ubuntu-base` |
 | 002 | LLM serving (Ollama) on a VM | 🟢 done | [002](specs/002-llm-serving-ollama.md) | `lxd-vm-create`, `lxd-vm-provision` | `lab-002-ollama` |
 | 003 | Open WebUI ↔ Ollama (two VMs) | 🟢 done | [003](specs/003-openwebui-ollama.md) | `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect` | `lab-003-openwebui`, `lab-002-ollama` |
-| 004 | vLLM serving Qwen3-8B on GB10 (container, GPU shared) | 🟢 done | [004](specs/004-vllm-qwen.md) | `lxd-vm-create` (container), `lxd-vm-provision` | `lab-004-vllm` |
-| 005 | pi agent harness wired to lab-004 vLLM + persistent tmux | 🟢 done | [005](specs/005-pi-with-qwen.md) | `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect` | `lab-005-pi`, `lab-004-vllm` |
+| 004 | vLLM serving **Qwen3-VL-30B-A3B-FP8** on GB10 (container, GPU shared; v2 ⬆ from Qwen3-8B) | 🟢 done | [004](specs/004-vllm-qwen.md) | `lxd-vm-create` (container), `lxd-vm-provision` | `lab-004-vllm` |
+| 005 | pi agent harness wired to lab-004 vLLM + persistent tmux (v2: + image→text) | 🟢 done | [005](specs/005-pi-with-qwen.md) | `lxd-vm-create`, `lxd-vm-provision`, `lxd-multi-connect` | `lab-005-pi`, `lab-004-vllm` |
 
 ## Log
 
@@ -46,6 +46,18 @@ Each row links to its spec; "Skills" lists the building blocks it composes.
   needs `ollama signin` and is unused. Also: symlinked `pi-tmux` into `/usr/local/bin`
   (bare name now resolves over `ssh host pi-tmux`) + installed laptop SSH key for
   passwordless LAN access.
+
+- 2026-06-03 — **004/005 v2: model upgrade 8B → Qwen3-VL-30B-A3B-Instruct-FP8.**
+  Replaced Qwen3-8B with the official FP8 multimodal MoE (~31 GB) for agentic coding +
+  tool calling + image→text. lab-004: `limits.memory` 32→100 GiB, systemd unit updated
+  (`--gpu-memory-utilization 0.50 --max-model-len 131072 --max-num-seqs 4
+  --tool-call-parser hermes`, `VLLM_USE_FLASHINFER_SAMPLER=0` to dodge the FlashInfer
+  nvcc-JIT requirement). lab-005: `models.json` + both pi launchers repointed,
+  `input:["text","image"]`. Snapshots `pre-vl-30b` on both for rollback. All **14**
+  checks green incl. a new vision check; pi verified end-to-end on text, web_search,
+  and image→text (`@path` → base64 `image_url`). FP8 chosen over community NVFP4 for
+  official support; `gpu-memory-utilization` is a fraction of the full 121 GiB unified
+  pool, not the container cap.
 
 ## How to add a project
 

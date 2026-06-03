@@ -1,6 +1,6 @@
-# 004 — vLLM serving Qwen3-8B on GB10
+# 004 — vLLM serving Qwen3-VL-30B-A3B (FP8) on GB10
 
-- **Status:** 🟢 done (2026-06-02)
+- **Status:** 🟢 done (2026-06-02) · **v2 2026-06-03**: upgraded Qwen3-8B → **Qwen3-VL-30B-A3B-Instruct-FP8** (multimodal)
 - **Skills:** `lxd-vm-create` (container variant), `lxd-vm-provision`
 - **Instance:** `lab-004-vllm` (**LXD container**, not VM)
 
@@ -97,3 +97,26 @@ Lessons folded into the framework (see Phase-5 diff):
   route (both VMs and containers had two equal-metric defaults → outbound stuck on lxdbr0).
 - `--gpu-memory-utilization` must reflect the container's memory cap, not the GPU's
   unified-memory total (GB10 reports 121 GiB but container limit was 32 GiB).
+
+### v2 — Qwen3-VL-30B-A3B-Instruct-FP8 (2026-06-03 — PASS)
+
+Upgraded the served model from Qwen3-8B to **`Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`**
+(official FP8, ~31 GB, MoE 3B-active, multimodal) for agentic coding + tool calling +
+image→text. Unit in `lab/units/vllm.service`; verified by `lab/tests/lab-004-005.sh`
+(14/14), incl. a vision check (model reads a red image) and tool-calling.
+
+Config deltas vs v1 (all in the systemd unit):
+- `--gpu-memory-utilization 0.50` (≈60 GiB of the 121 GiB unified pool — the flag is a
+  fraction of the **full** pool, not the container cap; v1's 0.20 ≈ 24 GiB held the 8B),
+  `--max-model-len 131072`, `--max-num-seqs 4` (bandwidth-bound above ~4 streams).
+- Container `limits.memory` raised 32 GiB → **100 GiB** (`lxc config set lab-004-vllm
+  limits.memory 100GiB`).
+- `--tool-call-parser hermes` (Qwen3-VL-Instruct emits hermes-style `<tool_call>`
+  blocks; `qwen3_coder` leaves them unparsed in `content`).
+- `Environment=VLLM_USE_FLASHINFER_SAMPLER=0` — FlashInfer's top-k sampler JIT-compiles
+  at startup and needs the CUDA toolkit (`nvcc`/`/usr/local/cuda`), absent in this
+  runtime-only container; the native sampler avoids it. (v1/8B never hit that path.)
+- vLLM 0.22.0 already supports the `Qwen3VLMoeForConditionalGeneration` arch — no upgrade.
+- Vision images fetched from external URLs can 429 (e.g. Wikimedia); embed as base64
+  `data:` URIs for reliable testing.
+- Snapshot `pre-vl-30b` taken before the swap for rollback.

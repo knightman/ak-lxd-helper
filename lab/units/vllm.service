@@ -1,12 +1,19 @@
-# lab-004-vllm — vLLM serving Qwen/Qwen3-8B with tool calling.
+# lab-004-vllm — vLLM serving Qwen/Qwen3-VL-30B-A3B-Instruct-FP8 (multimodal) with tool calling.
 # Deploy inside the container at /etc/systemd/system/vllm.service:
 #   lxc file push lab/units/vllm.service lab-004-vllm/etc/systemd/system/vllm.service --mode=0644
 #   lxc exec lab-004-vllm -- systemctl daemon-reload
 #   lxc exec lab-004-vllm -- systemctl enable --now vllm.service
-# The --enable-auto-tool-choice / --tool-call-parser hermes flags are REQUIRED for
-# OpenAI tool/function calling (e.g. pi's web_search); see lab/specs/004-vllm-qwen.md.
+# Notes:
+#  - FP8 is a prequantized checkpoint: leave --quantization unset.
+#  - --tool-call-parser hermes: Qwen3-VL-Instruct emits hermes-style <tool_call>
+#    blocks (verified). qwen3_coder leaves them unparsed in content. Required for tools.
+#  - --gpu-memory-utilization is a fraction of the FULL GB10 unified pool (~121 GiB),
+#    not the container cap; 0.50 ~= 60 GiB (32 GB weights + long-context KV).
+#  - Container needs limits.memory >= ~70 GiB (set to 100GiB): lxc config set
+#    lab-004-vllm limits.memory 100GiB.
+# See lab/specs/004-vllm-qwen.md.
 [Unit]
-Description=vLLM serving Qwen/Qwen3-8B (lab-004) with tool calling
+Description=vLLM serving Qwen3-VL-30B-A3B-Instruct-FP8 (lab-004) multimodal + tool calling
 After=network-online.target
 Wants=network-online.target
 
@@ -15,10 +22,13 @@ Type=simple
 User=lab
 Group=lab
 WorkingDirectory=/home/lab
-ExecStart=/home/lab/.venv/bin/vllm serve Qwen/Qwen3-8B --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.20 --max-model-len 8192 --enable-auto-tool-choice --tool-call-parser hermes
+# FlashInfer would JIT-compile its top-k sampler at startup, which needs the CUDA
+# toolkit (nvcc) — absent in this runtime-only container. Use the native sampler.
+Environment=VLLM_USE_FLASHINFER_SAMPLER=0
+ExecStart=/home/lab/.venv/bin/vllm serve Qwen/Qwen3-VL-30B-A3B-Instruct-FP8 --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.50 --max-model-len 131072 --max-num-seqs 4 --enable-auto-tool-choice --tool-call-parser hermes
 Restart=on-failure
 RestartSec=5
-TimeoutStartSec=900
+TimeoutStartSec=1200
 
 [Install]
 WantedBy=multi-user.target

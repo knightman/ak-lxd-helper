@@ -7,7 +7,7 @@ set -u
 URL="${AK_LXD_URL:-http://127.0.0.1:8080}"
 VLLM=lab-004-vllm
 PI=lab-005-pi
-MODEL="Qwen/Qwen3-8B"
+MODEL="Qwen/Qwen3-VL-30B-A3B-Instruct-FP8"
 
 pass=0; fail=0
 _check() {  # _check <label> <expected-grep-pattern> <command>
@@ -58,7 +58,7 @@ _check "models.json registers vllm provider + $MODEL" "$MODEL" \
 
 echo
 echo "== end-to-end (pi -> vLLM completion) =="
-_check "pi --provider vllm one-shot returns text from Qwen3-8B" "[A-Za-z]" \
+_check "pi --provider vllm one-shot returns text from the model" "[A-Za-z]" \
   _exec "$PI" "su - lab -c '/home/lab/pi/pi-test.sh --provider vllm --model vllm/$MODEL --no-tools -p \"Reply with exactly: hello-from-pi\" 2>&1' | tail -5"
 
 echo
@@ -75,6 +75,13 @@ _check "pi-web-access extension installed (zero-config Exa web_search)" "pi-web-
 # official Python URL appears in the answer.
 _check "pi web_search returns a live result (finds python.org)" "python\\.org" \
   _exec "$PI" "su - lab -c '/home/lab/pi/pi-test.sh --provider vllm --model vllm/$MODEL -p \"Use the web_search tool to find the official Python website, then reply with just its URL.\" 2>&1' | tail -15"
+
+echo
+echo "== vision / multimodal (lab-004-vllm) =="
+# Generate a solid-red PNG in-container (Pillow ships with vLLM) and ask the model its
+# colour — proves the Qwen3-VL multimodal path serves end-to-end (no external fetch).
+_check "vllm describes an image (red) via /v1/chat/completions" "[Rr]ed" \
+  _exec "$VLLM" "/home/lab/.venv/bin/python -c 'import json,io,base64,urllib.request as u; from PIL import Image; buf=io.BytesIO(); Image.new(\"RGB\",(128,128),(220,20,20)).save(buf,\"PNG\"); b=base64.b64encode(buf.getvalue()).decode(); r=json.load(u.urlopen(u.Request(\"http://localhost:8000/v1/chat/completions\",data=json.dumps({\"model\":\"$MODEL\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is the dominant colour? One word.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,\"+b}}]}]}).encode(),headers={\"content-type\":\"application/json\"}),timeout=120)); print(r[\"choices\"][0][\"message\"][\"content\"])'"
 
 echo
 echo "== persistent tmux session (lab-005-pi) =="

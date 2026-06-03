@@ -62,6 +62,21 @@ _check "pi --provider vllm one-shot returns text from Qwen3-8B" "[A-Za-z]" \
   _exec "$PI" "su - lab -c '/home/lab/pi/pi-test.sh --provider vllm --model vllm/$MODEL --no-tools -p \"Reply with exactly: hello-from-pi\" 2>&1' | tail -5"
 
 echo
+echo "== web search / tool calling =="
+# Regression for the tool-calling flags on lab-004's vLLM (--enable-auto-tool-choice
+# --tool-call-parser hermes). Without them this request 400s, curl -fs yields nothing,
+# and pi's web_search can never fire. With them, vLLM returns a chat.completion object.
+_check "vllm accepts OpenAI tool-calling requests" "chat.completion" \
+  _exec "$VLLM" "curl -fs http://localhost:8000/v1/chat/completions -H 'content-type: application/json' -d '{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"max_tokens\":64,\"temperature\":0.0,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Get the weather for a city\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}}],\"tool_choice\":\"auto\"}'"
+_check "pi-web-access extension installed (zero-config Exa web_search)" "pi-web-access" \
+  _exec "$PI" "cat /home/lab/.pi/agent/settings.json 2>/dev/null"
+# End-to-end: pi must actually call web_search (pi-web-access/Exa) and surface a live
+# result. Network-dependent; the model has to choose to call the tool. Asserts the
+# official Python URL appears in the answer.
+_check "pi web_search returns a live result (finds python.org)" "python\\.org" \
+  _exec "$PI" "su - lab -c '/home/lab/pi/pi-test.sh --provider vllm --model vllm/$MODEL -p \"Use the web_search tool to find the official Python website, then reply with just its URL.\" 2>&1' | tail -15"
+
+echo
 echo "== persistent tmux session (lab-005-pi) =="
 _check "tmux session 'pi' exists" "^pi:" \
   _exec "$PI" "su - lab -c 'tmux ls 2>/dev/null'"

@@ -37,6 +37,15 @@ Each row links to its spec; "Skills" lists the building blocks it composes.
   one-shot routes through vLLM and returns Qwen3-8B text. Persistent tmux session
   `pi` via systemd user unit (lingering enabled). LAN SSH: `ssh lab@192.168.1.152`
   then `pi-tmux`. All 10 checks in `lab/tests/lab-004-005.sh` green.
+- 2026-06-03 — **004/005 web search enabled.** Added `pi-web-access` (zero-config Exa)
+  to lab-005 for `web_search`/`fetch_content`. Root cause of "search doesn't work" was
+  lab-004's vLLM serving **without tool calling**: relaunched with
+  `--enable-auto-tool-choice --tool-call-parser hermes` and moved it onto a persistent
+  **systemd unit** (`vllm.service`, replaces the detached `bash -c`). Verified pi
+  `web_search` through Qwen3 returns live results. The default `@ollama/pi-web-search`
+  needs `ollama signin` and is unused. Also: symlinked `pi-tmux` into `/usr/local/bin`
+  (bare name now resolves over `ssh host pi-tmux`) + installed laptop SSH key for
+  passwordless LAN access.
 
 ## How to add a project
 

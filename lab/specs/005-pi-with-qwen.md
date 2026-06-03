@@ -79,10 +79,35 @@ ssh -t lab@192.168.1.152 \
 alias pi='ssh -t lab@192.168.1.152 pi-tmux'
 ```
 
+`pi-tmux` is symlinked into `/usr/local/bin` so the bare name resolves over a
+non-login `ssh host pi-tmux` command (the user `~/.local/bin` is NOT on PATH for
+non-login SSH). If you ever rebuild the VM, re-add the symlink:
+`ln -sf /home/lab/.local/bin/pi-tmux /usr/local/bin/pi-tmux`.
+
 Note: pi/Qwen3 emits `<think>...</think>` reasoning blocks before the final answer
 (that's Qwen3's normal behavior, not a bug).
 
-Credentials: `lab` / `$LAB_VM_PASSWORD` from `.env` (dashboard's **Overview → LAN access** card shows them).
+### Web search / tools (added 2026-06-03)
+
+pi can search the web via the **`pi-web-access`** extension (zero-config Exa, no API
+key): `~/pi/pi-test.sh install npm:pi-web-access` (registers in
+`~/.pi/agent/settings.json` → `"packages"`; exposes `web_search`, `code_search`,
+`fetch_content`). Optional Perplexity/Gemini fallbacks via `~/.pi/web-search.json`.
+
+**Prerequisite — tool calling on the backend:** lab-004's vLLM must be served with
+`--enable-auto-tool-choice --tool-call-parser hermes` (now baked into its systemd
+unit). Without them every tool call 400s — this, not the search extension, was why
+search failed. (The default `@ollama/pi-web-search` path is a dead end here: it uses
+Ollama's hosted search and needs `ollama signin`/`OLLAMA_API_KEY`, and ollama isn't
+installed.) Verified: `pi -p "use web_search to find the latest Node LTS"` returns a
+real, current answer sourced from live results.
+
+Auth: key-based SSH is the easiest path — append your laptop pubkey to
+`~lab/.ssh/authorized_keys` (via `lxc exec lab-005-pi` from the host if you can't
+type the password through a non-TTY caller). Otherwise password auth: `lab` /
+`$LAB_VM_PASSWORD` from `.env` (dashboard's **Overview → LAN access** card shows
+them). Password prompts need a real terminal — Claude Code's `!` prefix and
+non-interactive callers have no TTY and fall back to the missing `ssh-askpass`.
 
 ## Teardown
 

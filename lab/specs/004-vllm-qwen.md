@@ -49,8 +49,16 @@ directly. That's what this spec uses.
    step may need re-running after the network metric fix).
 4. `python3 -m venv ~/.venv && ~/.venv/bin/pip install vllm` (detached + poll;
    pulls **multi-GB CUDA 13.x wheels** for aarch64 — minutes to ~30 minutes).
-5. `vllm serve Qwen/Qwen3-8B --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.20 --max-model-len 8192`
-   (detached; first run pulls ~16 GB model from HF).
+5. `vllm serve Qwen/Qwen3-8B --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.20 --max-model-len 8192 --enable-auto-tool-choice --tool-call-parser hermes`
+   (first run pulls ~16 GB model from HF). The two tool-calling flags are
+   **required** for any OpenAI tool/function calling (e.g. pi's web_search); without
+   them vLLM returns `400 "auto" tool choice requires --enable-auto-tool-choice and
+   --tool-call-parser to be set`. `hermes` is the right parser for Qwen2.5/Qwen3
+   (their chat templates ship Hermes-style tool use).
+6. Run it under a **systemd unit** (`lab/units/vllm.service` → push to
+   `/etc/systemd/system/vllm.service`, `User=lab`, `WantedBy=multi-user.target`) so it
+   survives container reboots and auto-restarts — replaces the original detached
+   `bash -c` launch. (Added 2026-06-03.)
 
 ## Acceptance criteria
 
